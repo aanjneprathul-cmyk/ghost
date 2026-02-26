@@ -75,6 +75,23 @@ function createRoom(socket1, socket2) {
   console.log(`[MESH] Room ${roomId.substr(0,8)} — Pair connected (${hops} hops)`);
   broadcastStats();
 }
+// Fix Android keyboard pushing layout
+function fixViewport() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+fixViewport();
+window.addEventListener('resize', fixViewport);
+window.addEventListener('orientationchange', () => {
+  setTimeout(fixViewport, 300);
+});
+
+// Keep input visible when keyboard opens on Android
+document.getElementById('msg-input').addEventListener('focus', () => {
+  setTimeout(() => {
+    document.getElementById('msg-input').scrollIntoView({ block: 'center' });
+  }, 400);
+});
 
 function disconnectFromRoom(socketId) {
   const roomId = socketToRoom.get(socketId);
