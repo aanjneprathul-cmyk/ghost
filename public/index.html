@@ -488,21 +488,62 @@ function addVoiceMsg(audioData,duration,modulation,isMe){
   const bars=Array.from({length:18},(_,i)=>`<div class="wave-bar" style="height:${4+Math.random()*16}px"></div>`).join('');
   row.innerHTML=`<div class="msg-avi ${ac}">${ch}</div><div class="bubble-wrap"><div class="voice-bubble" id="${id}"><button class="voice-play-btn" onclick="playVoice('${id}',this)">▶</button><div class="waveform">${bars}</div><div class="voice-meta"><span class="voice-dur">${duration||'?'}s</span><span class="mod-tag">${modulation||'MOD'}</span></div></div><div class="msg-time">${t}</div></div>`;
   msgs.appendChild(row);
-  if(audioData){const el=document.getElementById(id); if(el) el._audioData=audioData;}
+  if(audioData){const el=document.getElementById(id); if(el){el._audioData=audioData; el._modulation=modulation||'ROBOTIC';}}
   scrollMsgs();
 }
 
-function playVoice(id,btn){
+async function playVoice(id,btn){
   const el=document.getElementById(id);
   if(!el||!el._audioData){toast('No audio','error');return;}
   try{
     const bytes=Uint8Array.from(atob(el._audioData),c=>c.charCodeAt(0));
-    const mime=getSupportedPlayMime();
-    const url=URL.createObjectURL(new Blob([bytes],{type:mime}));
-    const audio=new Audio(url); btn.textContent='■';
-    audio.play().catch(()=>toast('Tap play button again','info'));
-    audio.onended=()=>{btn.textContent='▶';URL.revokeObjectURL(url);};
-  }catch(e){toast('Cannot play audio','error');}
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const buf=await ctx.decodeAudioData(bytes.buffer.slice(0));
+    const src=ctx.createBufferSource();
+    src.buffer=buf;
+    const mod=el._modulation||'ROBOTIC';
+    let last=src;
+    if(mod==='DEEP'){
+      src.playbackRate.value=0.65;
+    }else if(mod==='CHIPMUNK'){
+      src.playbackRate.value=1.8;
+    }else if(mod==='ROBOTIC'){
+      // AM at 50 Hz: oscillator (range -1…1) added to gain=1 → effective gain [0,2], mechanical buzz
+      const osc=ctx.createOscillator(); osc.frequency.value=50;
+      const g=ctx.createGain(); g.gain.value=1;
+      osc.connect(g.gain); osc.start();
+      src.connect(g); last=g;
+    }else if(mod==='ALIEN'){
+      // Sawtooth AM at 220 Hz: added to gain=1 → effective gain [0,2], harsh alien texture
+      const osc=ctx.createOscillator(); osc.type='sawtooth'; osc.frequency.value=220;
+      const g=ctx.createGain(); g.gain.value=1;
+      osc.connect(g.gain); osc.start();
+      src.connect(g); last=g;
+    }else if(mod==='GHOST'){
+      // Lower pitch + static double-tap delay mixed with dry signal for an ethereal effect
+      src.playbackRate.value=0.8;
+      const mix=ctx.createGain(); mix.gain.value=0.7;
+      const d1=ctx.createDelay(1); d1.delayTime.value=0.15;
+      const d2=ctx.createDelay(1); d2.delayTime.value=0.3;
+      src.connect(mix); src.connect(d1); src.connect(d2);
+      d1.connect(mix); d2.connect(mix);
+      last=mix;
+    }else if(mod==='ECHO'){
+      // Delay with decaying feedback (gain<1 ensures echoes die out) + dry path
+      const dry=ctx.createGain(); dry.gain.value=1;
+      const d=ctx.createDelay(2); d.delayTime.value=0.38;
+      const fb=ctx.createGain(); fb.gain.value=0.5;
+      src.connect(dry); src.connect(d);
+      d.connect(fb); fb.connect(d); d.connect(ctx.destination);
+      dry.connect(ctx.destination); last=null;
+    }
+    if(last) last.connect(ctx.destination);
+    btn.textContent='■';
+    function onStop(){btn.textContent='▶'; ctx.close(); btn.onclick=()=>playVoice(id,btn);}
+    src.onended=onStop;
+    btn.onclick=()=>{try{src.stop();}catch(_){/* already stopped */} onStop();};
+    src.start(0);
+  }catch(e){console.error(e);toast('Cannot play audio','error');}
 }
 
 function addSys(text){
